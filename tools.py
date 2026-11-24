@@ -135,7 +135,8 @@ def check_extension(ctx, assignment_id, days):
         return f"[{aid}] Extension of {days} day(s): NOT ELIGIBLE. Reasons: " + "; ".join(reasons) + f". {used}"
     due = effective_due(ctx.student, aid)
     return (f"[{aid}] Extension of {days} day(s): ELIGIBLE. The due date would move from {show(due)} to "
-            f"{show(due + timedelta(days=days))} if a TA approves. {used} Nothing is requested yet.")
+            f"{show(due + timedelta(days=days))} if a TA approves. {used} Nothing is requested yet: if the student asked "
+            f"you to request it, call request_extension now; otherwise tell them they can ask for it.")
 
 
 def request_extension(ctx, assignment_id, days, reason=""):

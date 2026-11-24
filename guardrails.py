@@ -42,6 +42,10 @@ CLAIMS_DONE = re.compile(
     r"|\b(granted|approved) (you |your )?(an |the |a )?(\d+-day )?extension"
     r"|\b(e-?mail|message)\b[^.]{0,60}\b(has been|was|is)\s+(sent|delivered|forwarded)\b"
     r"|\bI\s+(have\s+)?(sent|e-?mailed|forwarded)\b")
+# "I have created a request" while no request exists: the model skipped the tool (seen in my first smoke test).
+CLAIMS_REQUEST = re.compile(r"(?i)\b(I\s+(have\s+)?(created|submitted|made|filed|saved|sent|placed)\s+(a|an|your|the)\s+"
+                            r"(extension\s+)?(request|e-?mail)|(request|e-?mail)\b[^.]{0,40}\b(has been|was|is)\s+"
+                            r"(created|submitted|saved|filed|prepared))")
 NEGATED = re.compile(r"(?i)\b(not|never|no|cannot|can't|isn't|hasn't|wasn't|haven't|won't|nothing|until|once|if|after|when|will)\b")
 
 
@@ -160,6 +164,11 @@ def check_output(text, student_id, soul, evidence, pending):
         text = " ".join(s for s in sentences if not (CLAIMS_DONE.search(s) and not NEGATED.search(s)))
         text = (text + " " + fix).strip()
         events.append("false_claim_corrected")
+    if not pending and CLAIMS_REQUEST.search(text):
+        sentences = re.split(r"(?<=[.!?])\s+", text)
+        text = " ".join(s for s in sentences if not CLAIMS_REQUEST.search(s))
+        text += " Correction: no request was created yet; ask me to request it and I will prepare it for a TA."
+        events.append("claimed_request_without_tool")
     bad = unsupported_numbers(text, evidence)
     if bad:
         events.append("unsupported_numbers:" + ",".join(f"{n:g}" for n in bad))
