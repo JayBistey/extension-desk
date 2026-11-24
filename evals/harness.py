@@ -142,8 +142,10 @@ def summarize(rows):
         "largest_request": f"{biggest['id']}: {biggest['tokens_in']} in / {biggest['tokens_out']} out" if biggest else "",
         "seconds_mean": mean([r["seconds"] for r in model]), "seconds_max": max((r["seconds"] for r in model), default=0),
         "slowest_case": max(model, key=lambda r: r["seconds"])["id"] if model else "",
-        "cloud_cost_per_request": round(mean([r["cloud_cost"] for r in model]), 6),
-        "cloud_cost_per_1000": round(1000 * mean([r["cloud_cost"] for r in model]), 3),
+        # costs are computed from the unrounded mean (mean() rounds to 2 decimals, which made $0.00036 show as 0:
+        # history/*_cost_rounding_bug.json)
+        "cloud_cost_per_request": round(sum(r["cloud_cost"] for r in model) / max(len(model), 1), 6),
+        "cloud_cost_per_1000": round(1000 * sum(r["cloud_cost"] for r in model) / max(len(model), 1), 3),
         "cloud_cost_per_1000_all_cases": round(1000 * sum(r["cloud_cost"] for r in rows) / len(rows), 3),
         "worst_case_tokens": config.TOKEN_BUDGET, "worst_case_in": worst_in, "worst_case_out": worst_out,
         "worst_case_cloud_cost": round(cloud_cost(worst_in, worst_out), 5),
