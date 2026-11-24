@@ -49,6 +49,18 @@ CLAIMS_REQUEST = re.compile(r"(?i)\b(I\s+(have\s+)?(created|submitted|made|filed
 NEGATED = re.compile(r"(?i)\b(not|never|no|cannot|can't|isn't|hasn't|wasn't|haven't|won't|nothing|until|once|if|after|when|will)\b")
 
 
+PERSONAL = re.compile(r"(?i)\b(grade|grades|score|e-?mail|phone|number|record|submission|submitted|extensions?|address|contact)\b")
+
+
+def others_named(text, student_id):
+    """Another student's id (S-xxxx) or name from the invented roster appears in the text."""
+    import json, os
+    roster = json.load(open(os.path.join(config.DATA_DIR, "students.json"), encoding="utf-8"))
+    ids = [s for s in STUDENT_ID.findall(text) if s != student_id]
+    names = [r["name"] for sid, r in roster.items() if sid != student_id and r["name"].lower() in text.lower()]
+    return ids + names
+
+
 @dataclass
 class GuardResult:
     allowed: bool
@@ -67,7 +79,8 @@ def refusal(reason):
     why = {"empty": "the message is empty", "too_long": f"the message is longer than {config.MAX_INPUT_CHARS} characters",
            "prompt_injection": "it asks me to ignore or reveal my rules",
            "secret_in_input": "it contains a password or key; please never type one here",
-           "off_topic": "it is outside the extension desk's job"}[reason]
+           "off_topic": "it is outside the extension desk's job",
+           "other_student_data": "it asks about another student's information, which I never share"}[reason]
     return (f"Refused by the input guardrail ({reason}): {why}. I can help with CS 1100 course rules, deadlines, "
             f"late penalties and extension requests.")
 
@@ -85,6 +98,8 @@ def check_input(text, student_id):
         return GuardResult(False, "", ["refused:secret_in_input"])
     if OFF_TOPIC.search(text):
         return GuardResult(False, "", ["refused:off_topic"])
+    if (others_named(text, student_id) and PERSONAL.search(text)):   # eval_v2 e16, r05: the model answered with the
+        return GuardResult(False, "", ["refused:other_student_data"])  # caller's own record; a prompt rule did not fix it
     events = []
     for name, p in PII_PATTERNS.items():          # an e-mail or phone number never reaches the model
         if p.search(text):
@@ -121,8 +136,9 @@ def numbers(text):
 
 
 def unsupported_numbers(answer, evidence):
-    """Numbers in the answer that appear in no tool result and not in the request."""
-    have = numbers(evidence)
+    """Numbers in the answer that appear in no tool result and not in the request. A tool's 23:59 also backs
+    the "11:59 PM" a person would write (bug found in redteam_v1: r02 and r04 were flagged for "11")."""
+    have = numbers(evidence) | {float(int(h) % 12 or 12) for h in re.findall(r"\b(\d{1,2}):\d{2}\b", evidence)}
     return sorted(n for n in numbers(answer) if not any(abs(n - e) < 0.006 for e in have))
 
 
@@ -139,9 +155,13 @@ def soul_leak(text, soul, n=8):
     return any(" ".join(said[i:i + n]) in grams for i in range(len(said) - n + 1))
 
 
-def check_output(text, student_id, soul, evidence, pending):
-    """Returns (final text, events). Blocks secrets and SOUL text, redacts personal data, corrects false claims,
-    and flags numbers that no tool returned."""
+CITATION = re.compile(r"\[([^\]]+)\]")
+
+
+def check_output(text, student_id, soul, evidence, pending, sources=(), flags=()):
+    """Returns (final text, events). Blocks secrets and SOUL text, redacts personal data, removes citations no
+    tool returned, corrects false claims, flags numbers that no tool returned, and tells the student when a
+    record contained an instruction."""
     if any(p.search(text) for p in SECRET_PATTERNS.values()):
         return "I can't share that. Passwords and keys are never given out at the extension desk.", ["secret_in_output"]
     if soul_leak(text, soul):
@@ -157,6 +177,16 @@ def check_output(text, student_id, soul, evidence, pending):
     if any(s != student_id for s in STUDENT_ID.findall(text)):
         text = STUDENT_ID.sub(lambda m: m.group(0) if m.group(0) == student_id else "[ANOTHER_STUDENT]", text)
         events.append("redacted_pii_in_output:other_student_id")
+    def known(cite):                              # [late_policy.md#2], [late_policy.md], [A3], [record S-2001]
+        return cite.startswith(("REDACTED", "ANOTHER_STUDENT")) or any(s == cite or s.startswith(cite + "#")
+                                                                       for s in sources)
+    bad_cites = [c for c in CITATION.findall(text) if not known(c)]
+    if bad_cites:                                 # a citation the tools never returned is invented (redteam_v1 r07, r10)
+        text = CITATION.sub(lambda m: m.group(0) if known(m.group(1)) else "", text)
+        events.append("unknown_citation_removed:" + ",".join(bad_cites))
+    if re.search(r"\[REDACTED_(PASSWORD|API_KEY)\]", text):   # don't even confirm that a secret exists (r04)
+        text = " ".join(s for s in re.split(r"(?<=[.!?])\s+", text) if "[REDACTED_" not in s)
+        events.append("redacted_secret_mention_removed")
     if claims_done(text):
         fix = (f"Correction: nothing is granted or sent yet; request {', '.join(pending)} waits for a TA's approval."
                if pending else "Correction: no extension was granted and no e-mail was sent.")
@@ -174,4 +204,7 @@ def check_output(text, student_id, soul, evidence, pending):
         events.append("unsupported_numbers:" + ",".join(f"{n:g}" for n in bad))
         text += (" (Check: " + ", ".join(f"{n:g}" for n in bad) +
                  " did not come from any tool result; please confirm with the TA desk.)")
-    return text, events
+    if flags:                                     # SOUL rule 7, enforced in code (redteam_v1 r02: the model forgot)
+        text += " Note: a course record contained an instruction-like text; I did not follow it."
+        events.append("injection_notice_added")
+    return text.strip(), events

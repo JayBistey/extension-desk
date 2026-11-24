@@ -5,7 +5,7 @@
 # New in this project: EXPIRY. A request expires after 24 h or at the original due time, whichever is first
 # (my Lab 9 Part H Q5 answer). Approving an expired request runs nothing. The clock is passed in (`now`),
 # so tests and an eval case can prove it.
-import hashlib, json, os
+import hashlib, json, os, re
 from datetime import timedelta
 import config
 import tools
@@ -65,6 +65,8 @@ def facts_and_flags(action, args, student, now):
             flags.append(f"the due time is less than 24 h away ({show(due)})")
         if args["days"] == 3:
             flags.append("the maximum of 3 days is asked")
+        if re.search(r"(?i)approv|authori[sz]|\bTA\b", str(args.get("reason"))):
+            flags.append("the reason claims an approval or a TA: only this TA decision counts")
     else:
         facts = {"to": "rowan.hale@example.edu (the instructor)", "subject": args["subject"],
                  "body": f"{len(args['body'])} characters: {args['body'][:200]}"}

@@ -12,10 +12,9 @@ from budget import Budget, BudgetExceeded, estimate_tokens
 from context import load_soul, build_messages, clip
 from guardrails import check_input, check_tool_result, check_output, refusal
 
-# A 7B model sometimes answers from memory. Once per request it is told to use a tool first (no way out offered:
-# in the demo a "...or refuse" clause made the model always refuse).
-NUDGE = ("Use a tool before you answer: search_policies for a rule, get_assignment for an assignment, get_my_record "
-         "for your record, compute_late_penalty or check_extension for numbers. Then answer with the source in brackets.")
+# A 7B model sometimes answers from memory. A text nudge ("use a tool first") was not enough (eval_v2 e13: no tool
+# even after the nudge), so once per request the CODE searches the policies with the student's question and the
+# model's tool-less draft is thrown away. The model then answers from what the search returned.
 
 
 @dataclass
@@ -57,7 +56,8 @@ def run_agent(request, student_id=None, budget=None, down=(), client=None, now=N
 
     ctx = tools.Ctx(student=student_id, now=now, client=client, budget=budget, down=tuple(down))
     messages = build_messages(g.text, student_id, now)          # Block 1: SOUL.md is the system message
-    evidence = [g.text]                                         # what the answer's numbers may come from
+    evidence = [g.text, messages[0]["content"]]                 # what the answer's numbers may come from: the request,
+                                                                # the system message ("CS 1100", eval_v3 e17) and tools
     nudged, stop, answer = False, "max_turns", ""
     for turn in range(1, config.MAX_TURNS + 1):
         last = turn == config.MAX_TURNS                         # the last turn gets no tools: it must answer
@@ -84,10 +84,17 @@ def run_agent(request, student_id=None, budget=None, down=(), client=None, now=N
         calls = msg.tool_calls or []
         if not calls:
             text = (msg.content or "").strip()
-            if not res.steps and not nudged and not last:       # answered without any tool: nudge once
+            if not res.steps and not nudged and not last:       # answered without any tool: search for it, once
                 nudged = True
-                res.events.append("tool_first_nudge")
-                messages += [{"role": "assistant", "content": text}, {"role": "user", "content": NUDGE}]
+                res.events.append("auto_search")
+                out, ev = check_tool_result("search_policies", tools.dispatch("search_policies", {"query": g.text}, ctx))
+                res.events += ev
+                out = clip(out)
+                evidence.append(out)
+                res.steps.append({"tool": "search_policies", "args": {"query": g.text}, "result": out, "auto": True})
+                messages += [{"role": "assistant", "content": "", "tool_calls": [{"id": "auto-1", "type": "function",
+                              "function": {"name": "search_policies", "arguments": json.dumps({"query": g.text})}}]},
+                             {"role": "tool", "tool_call_id": "auto-1", "content": out}]
                 continue
             stop, answer = ("max_turns" if last else "answer"), text
             break
@@ -111,6 +118,7 @@ def run_agent(request, student_id=None, budget=None, down=(), client=None, now=N
     res.pending, res.sources = ctx.pending, ctx.sources
     if not answer:
         answer = "I could not finish this request. Please ask a TA."
-    final, ev = check_output(answer, student_id, load_soul(), "\n".join(evidence), ctx.pending)   # Block 6
+    final, ev = check_output(answer, student_id, load_soul(), "\n".join(evidence), ctx.pending,   # Block 6
+                             ctx.sources, ctx.flags)
     res.events += ev
     return done(stop, final)

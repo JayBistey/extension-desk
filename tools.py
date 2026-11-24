@@ -2,7 +2,7 @@
 # Rules for every tool: numbers and rule comparisons are done here in code (policy_math.py), the student id
 # comes from the CLI (never from the model's arguments), and every failure comes back as an "ERROR: ..."
 # string that the model must report. The two risky tools never act: they only create a PENDING request (gate.py).
-import json, os
+import inspect, json, os
 from dataclasses import dataclass, field
 import config
 import rag
@@ -93,13 +93,15 @@ def get_my_record(ctx, **ignored):
     return "\n".join(lines)
 
 
-def compute_late_penalty(ctx, assignment_id, submitted_at=None):
+def compute_late_penalty(ctx, assignment_id, submitted_at=None, days_late=None):
     aid, a = find_assignment(assignment_id)
     if aid == "MID":
         return f"[{aid}] The late penalty does not apply to exams. A missed exam needs a make-up from the instructor."
     due = effective_due(ctx.student, aid)
     recorded = load("students.json")[ctx.student]["submissions"].get(aid)
-    if submitted_at:
+    if days_late is not None:                             # a what-if: "five days late" (the model cannot do dates)
+        when, label = due + timedelta(days=int(float(days_late))), f"what-if: {int(float(days_late))} day(s) late"
+    elif submitted_at:
         when, label = parse_time(submitted_at), "the time you gave"
     elif recorded:
         when, label = parse_time(recorded), "your recorded submission"
@@ -127,7 +129,7 @@ def _check(ctx, assignment_id, days):
     return aid, a, days, ok, reasons
 
 
-def check_extension(ctx, assignment_id, days):
+def check_extension(ctx, assignment_id, days=1):
     aid, a, days, ok, reasons = _check(ctx, assignment_id, days)
     ctx.sources.append(aid)
     used = f"Extensions used: {extensions_used(ctx.student)} of {MAX_EXTENSIONS}."
@@ -182,16 +184,19 @@ SPECS = [
     _spec("search_policies", "Search the CS 1100 policy documents (syllabus, late work, extensions, integrity, "
           "exams). Returns sections with ids like [late_policy.md#2] to cite.",
           {"query": {"type": "string", "description": "A short question, e.g. 'late penalty per day'."}}, ["query"]),
-    _spec("get_assignment", "Look up one assignment: due date, points, weight, whether extensions are allowed, notes.",
+    _spec("get_assignment", "Look up one assignment: due date, points, weight, whether extensions are allowed, notes. "
+          "P1 is the final PROJECT; the final EXAM is not an assignment (use search_policies for it).",
           {"assignment_id": AID}, ["assignment_id"]),
     _spec("get_my_record", "The verified student's own record: extensions used, current grade, submission times. "
           "Takes no arguments; it can never show another student."),
     _spec("compute_late_penalty", "Compute in code the days late and the penalty for one assignment. Without "
           "submitted_at it uses the student's recorded submission (or now, if not submitted).",
-          {"assignment_id": AID, "submitted_at": {"type": "string", "description": "Optional, e.g. 2026-11-22T14:30"}},
+          {"assignment_id": AID, "submitted_at": {"type": "string", "description": "Optional, e.g. 2026-11-22T14:30"},
+           "days_late": {"type": "integer", "description": "Optional what-if, e.g. 5 for 'five days late'"}},
           ["assignment_id"]),
-    _spec("check_extension", "Check in code whether an extension of N days is allowed for the student. Changes nothing.",
-          {"assignment_id": AID, "days": {"type": "integer", "description": "1 to 3"}}, ["assignment_id", "days"]),
+    _spec("check_extension", "Check in code whether the student can get an extension on an assignment, with every "
+          "reason. Use it for any 'can I get an extension' question. Changes nothing.",
+          {"assignment_id": AID, "days": {"type": "integer", "description": "1 to 3 (default 1)"}}, ["assignment_id"]),
     _spec("request_extension", "RISKY: create an extension REQUEST for a TA to approve, only when the student asks "
           "for one. It checks eligibility first. It does NOT grant anything: the request waits for a TA.",
           {"assignment_id": AID, "days": {"type": "integer", "description": "1 to 3"},
@@ -210,8 +215,12 @@ def dispatch(name, args, ctx):
         return f"ERROR: there is no tool named {name!r}."
     if name in ctx.down:
         return f"ERROR: the tool {name} is not available right now (outage). Tell the student; do not guess."
+    fn = FUNCS[name]
+    params = inspect.signature(fn).parameters
+    if not any(p.kind == p.VAR_KEYWORD for p in params.values()):      # an extra argument the model invented
+        args = {k: v for k, v in args.items() if k in params}         # is dropped, not an error (eval_v2 e09)
     try:
-        return FUNCS[name](ctx, **args)
+        return fn(ctx, **args)
     except TypeError as e:
         return f"ERROR: wrong arguments for {name}: {e}"
     except (KeyError, ValueError) as e:
