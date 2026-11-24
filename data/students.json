@@ -1,0 +1,14 @@
+{
+  "S-2001": {"name": "Avery Quill", "email": "avery.quill@example.edu", "phone": "555-0101",
+             "extensions_used": 0, "current_grade": "B+",
+             "submissions": {"A1": "2026-09-18T21:10", "A2": "2026-10-09T23:58", "A3": "2026-11-22T14:30"}},
+  "S-2002": {"name": "Bram Toller", "email": "bram.toller@example.edu", "phone": "555-0102",
+             "extensions_used": 2, "current_grade": "C",
+             "submissions": {"A1": "2026-09-20T09:00", "A2": "2026-10-12T08:00", "A3": "2026-11-20T23:50"}},
+  "S-2003": {"name": "Cass Wren", "email": "cass.wren@example.edu", "phone": "555-0103",
+             "extensions_used": 1, "current_grade": "A-",
+             "submissions": {"A1": "2026-09-17T18:00", "A2": "2026-10-09T20:00", "A3": "2026-11-21T00:10"}},
+  "S-2004": {"name": "Dev Marlow", "email": "dev.marlow@example.edu", "phone": "555-0104",
+             "extensions_used": 1, "current_grade": "B",
+             "submissions": {"A1": "2026-09-18T23:00", "A2": "2026-10-13T10:00"}}
+}
