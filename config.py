@@ -45,11 +45,11 @@ STATE_DIR = os.path.join(HERE, "state")
 REPORTS_DIR = os.path.join(HERE, "reports")
 
 # ---- cost: one cloud model to compare with (the local bill is $0). Checked on the run day, see the report 3.4 ----
-PRICE_MODEL = "TO CHECK"
-PRICE_IN_PER_M = 0.0
-PRICE_OUT_PER_M = 0.0
-PRICE_URL = ""
-PRICE_CHECKED = ""
+PRICE_MODEL = "Claude Haiku 5.5"         # the tier for prompts up to 100,000 tokens (every request here is ~3,000)
+PRICE_IN_PER_M = 0.10                     # USD per 1M input tokens
+PRICE_OUT_PER_M = 0.50                    # USD per 1M output tokens
+PRICE_URL = "https://platform.claude.com/docs/en/about-claude/pricing"
+PRICE_CHECKED = "2026-11-24"
 
 
 def now():
