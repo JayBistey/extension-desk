@@ -29,7 +29,7 @@ Jay Bista Chhetri, COMP 2319 Introduction to Artificial Intelligence, Comprehens
 macOS or Linux:
 
 ```bash
-git clone https://github.com/<your-account>/extension-desk.git
+git clone https://github.com/JayBistey/extension-desk.git
 cd extension-desk
 python3 -m venv .venv
 source .venv/bin/activate
@@ -42,7 +42,7 @@ python main.py index        # embeds the 16 policy chunks of docs/ into index/po
 Windows (PowerShell):
 
 ```powershell
-git clone https://github.com/<your-account>/extension-desk.git
+git clone https://github.com/JayBistey/extension-desk.git
 cd extension-desk
 python -m venv .venv
 .venv\Scripts\Activate.ps1
